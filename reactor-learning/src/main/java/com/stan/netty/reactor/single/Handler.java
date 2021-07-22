@@ -16,11 +16,9 @@ public class Handler implements Runnable {
 
     private static final int READING = 0;
     private static final int SENDING = 1;
-    private static int state = READING;
-
-
     private final SelectionKey sk;
     private final SocketChannel socketChannel;
+    private int state = READING;
 
 
     public Handler(Selector selector, SocketChannel socketChannel) throws IOException {
