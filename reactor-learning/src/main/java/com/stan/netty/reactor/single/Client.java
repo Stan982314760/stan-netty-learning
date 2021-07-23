@@ -63,7 +63,6 @@ public class Client implements Runnable {
                     sk.interestOps(SelectionKey.OP_WRITE);
                 }
             } else if (sk.isWritable()) {
-                System.out.println("客户端准备给服务端发送信息了");
                 byte[] msg = "hello client".getBytes(StandardCharsets.UTF_8);
                 ByteBuffer buffer = ByteBuffer.wrap(msg);
                 channel.write(buffer);
