@@ -17,10 +17,12 @@ public class NioTask {
     private final int op;
     private final ByteBuffer byteBuffer;
 
+    // read task
     public NioTask(SocketChannel socketChannel, int op) {
         this(socketChannel, op, null);
     }
 
+    // write task
     public NioTask(SocketChannel socketChannel, int op, ByteBuffer byteBuffer) {
         this.socketChannel = socketChannel;
         this.op = op;

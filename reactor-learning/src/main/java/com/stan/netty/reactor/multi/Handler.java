@@ -13,8 +13,8 @@ import java.nio.charset.StandardCharsets;
 public class Handler implements Runnable {
 
     private final SocketChannel channel;
-    private final ByteBuffer buffer;
     private final SubReactorThread subReactorThread;
+    private ByteBuffer buffer;
 
     public Handler(SocketChannel channel, ByteBuffer buffer, SubReactorThread subReactorThread) {
         this.channel = channel;
@@ -27,14 +27,14 @@ public class Handler implements Runnable {
         buffer.flip();
         System.out.println("业务Handler解码中...");
         byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
         System.out.printf("业务Handler %s 处理收到的消息: %s \n", Thread.currentThread().getName(),
                 new String(bytes, StandardCharsets.UTF_8));
+        buffer = null;
 
-        buffer.clear();
         String msg = "A message from " + Thread.currentThread().getName();
-        buffer.put(msg.getBytes(StandardCharsets.UTF_8));
+        ByteBuffer byteBuffer = ByteBuffer.wrap(msg.getBytes(StandardCharsets.UTF_8));
         System.out.println("业务Handler编码中...");
-
-        subReactorThread.register(new NioTask(channel, SelectionKey.OP_WRITE, buffer));
+        subReactorThread.register(new NioTask(channel, SelectionKey.OP_WRITE, byteBuffer));
     }
 }

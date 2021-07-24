@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -21,6 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SubReactorThread extends Thread {
 
     private static final AtomicInteger COUNTER = new AtomicInteger(1);
+    private static final int DEFAULT_BUFFER_SIZE = 1024;
     private final Lock mainLock;
     private final Selector selector;
     private final List<NioTask> taskList;
@@ -46,23 +48,9 @@ public class SubReactorThread extends Thread {
                     SelectionKey sk = it.next();
                     it.remove();
                     if (sk.isReadable()) {
-                        System.out.printf("%s 开始读取客户端消息...\n", Thread.currentThread().getName());
-                        SocketChannel channel = (SocketChannel) sk.channel();
-                        ByteBuffer buffer = ByteBuffer.allocate(1024);
-                        int read = channel.read(buffer);
-                        // TODO 没读完怎么办？？
-                        if (read > 0) {
-                            dispatch(channel, buffer);
-                        }
+                        read(sk);
                     } else if (sk.isWritable()) {
-                        SocketChannel channel = (SocketChannel) sk.channel();
-                        Object attachment = sk.attachment();
-                        if (attachment instanceof ByteBuffer) {
-                            System.out.printf("%s 开始向客户端发送消息...\n", Thread.currentThread().getName());
-                            ByteBuffer buffer = (ByteBuffer) attachment;
-                            channel.write(buffer);
-                            channel.register(selector, SelectionKey.OP_READ);
-                        }
+                        write(sk);
                     }
                 }
             } catch (Exception e) {
@@ -77,16 +65,10 @@ public class SubReactorThread extends Thread {
                         NioTask nioTask = it.next();
                         it.remove();
                         SocketChannel socketChannel = nioTask.getSocketChannel();
-                        if (nioTask.getByteBuffer() == null) {
-                            socketChannel.register(selector, nioTask.getOp());
-                        } else {
-                            ByteBuffer byteBuffer = nioTask.getByteBuffer();
-                            byteBuffer.flip();
-                            System.out.printf("%s 开始向客户端发送消息...\n", Thread.currentThread().getName());
-                            int write = socketChannel.write(byteBuffer);
-                            if (write < 1 && byteBuffer.hasRemaining()) {
-                                socketChannel.register(selector, nioTask.getOp(), byteBuffer);
-                            }
+                        if (nioTask.getOp() == SelectionKey.OP_READ) {
+                            socketChannel.register(selector, SelectionKey.OP_READ);
+                        } else if (nioTask.getOp() == SelectionKey.OP_WRITE) {
+                            socketChannel.register(selector, SelectionKey.OP_WRITE, nioTask.getByteBuffer());
                         }
                     }
                 } catch (Exception e) {
@@ -96,6 +78,56 @@ public class SubReactorThread extends Thread {
                 }
             }
 
+        }
+    }
+
+    private void read(SelectionKey sk) throws IOException {
+        System.out.printf("%s 开始读取客户端消息...\n", Thread.currentThread().getName());
+        SocketChannel channel = (SocketChannel) sk.channel();
+        final ByteBuffer temp = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
+        if (channel.read(temp) > 0) {
+            if (temp.position() < temp.capacity()) {
+                dispatch(channel, temp);
+            } else {
+                final List<byte[]> dstList = new ArrayList<>();
+                for (; ; ) {
+                    temp.flip();
+                    byte[] dst = new byte[temp.remaining()];
+                    temp.get(dst);
+                    temp.clear();
+                    dstList.add(dst);
+
+                    int read = channel.read(temp);
+                    if(read < 1)
+                        break;
+                }
+
+                if (dstList.size() > 0) {
+                    int capacity = dstList.stream().mapToInt(arr -> arr.length).sum();
+                    ByteBuffer byteBuffer = ByteBuffer.allocate(capacity);
+                    for (byte[] bytes : dstList) {
+                        byteBuffer.put(bytes);
+                    }
+
+                    dispatch(channel, byteBuffer);
+                }
+            }
+        }
+    }
+
+    private void write(SelectionKey sk) throws IOException {
+        SocketChannel channel = (SocketChannel) sk.channel();
+        Object attachment = sk.attachment();
+        if (attachment instanceof ByteBuffer) {
+            System.out.printf("%s 开始向客户端发送消息...\n", Thread.currentThread().getName());
+            ByteBuffer buffer = (ByteBuffer) attachment;
+            int write = channel.write(buffer);
+            if (write < 1 && buffer.hasRemaining()) { // write not finished
+                channel.register(selector, SelectionKey.OP_WRITE);
+            } else {
+                sk.attach(null);
+                channel.register(selector, SelectionKey.OP_READ);
+            }
         }
     }
 
